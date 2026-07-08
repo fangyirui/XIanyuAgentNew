@@ -1,0 +1,30 @@
+服务器部署（推荐）
+
+# 1. 安装 Docker
+curl -fsSL https://get.docker.com | sh
+systemctl enable docker && systemctl start docker
+
+# 2. 拉取代码
+git clone https://github.com/fangyirui/XianyuAutoAgent.git
+cd XianyuAutoAgent
+
+# 3. 配置环境变量
+cp .env.example .env
+vim .env   # 填 API_KEY、COOKIES_STR、MODEL_BASE_URL、MODEL_NAME 等
+
+# 4. 一键启动全部服务
+docker compose up -d --build
+
+# 5. 查看日志
+docker compose logs -f websocket      # 闲鱼 WS 服务
+docker compose logs -f backend-web    # 后台 API
+docker compose logs -f frontend       # 前端
+
+端口
+
+- 80 — 前端（Web 控制台，浏览器访问 http://服务器IP/）
+- 8089 — 后端 API/
+- 8090 — WebSocket 服务
+- 3306 / 6379 — MySQL / Redis（仅内网用，生产环境建议关掉对外端口）
+
+SELECT key_name, HEX(value) FROM system_config WHERE key_name='SKIP_KEYWORDS';SHOW VARIABLES LIKE 'character_set%';
