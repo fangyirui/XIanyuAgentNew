@@ -5,8 +5,8 @@ curl -fsSL https://get.docker.com | sh
 systemctl enable docker && systemctl start docker
 
 # 2. 拉取代码
-git clone https://github.com/fangyirui/XianyuAutoAgent.git
-cd XianyuAutoAgent
+git clone https://github.com/fangyirui/XIanyuAgentNew.git
+cd XIanyuAgentNew
 
 # 3. 配置环境变量
 cp .env.example .env
@@ -27,4 +27,3 @@ docker compose logs -f frontend       # 前端
 - 8090 — WebSocket 服务
 - 3306 / 6379 — MySQL / Redis（仅内网用，生产环境建议关掉对外端口）
 
-SELECT key_name, HEX(value) FROM system_config WHERE key_name='SKIP_KEYWORDS';SHOW VARIABLES LIKE 'character_set%';
