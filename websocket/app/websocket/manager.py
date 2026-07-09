@@ -311,23 +311,32 @@ class XianyuLive:
             return missing
 
     async def _fetch_missing_details(self, item_ids: list):
-        """并发补全商品详情，限流 3，单条间隔 0.5s。"""
-        semaphore = asyncio.Semaphore(3)
+        """串行补全商品详情，逐条请求前间隔 1.5~2.5s（带随机抖动）。
 
-        async def fetch_one(item_id: str):
-            async with semaphore:
-                try:
-                    api_result = await self.apis.get_item_info(item_id)
-                    if "data" in api_result and "itemDO" in api_result["data"]:
-                        await self._save_item_cache(item_id, api_result["data"]["itemDO"])
-                        logger.info(f"✅ 详情已补全 | item_id={item_id}")
-                    else:
-                        logger.warning(f"❌ 详情获取失败 | item_id={item_id}, keys={list(api_result.keys()) if isinstance(api_result, dict) else type(api_result).__name__}")
-                except Exception as e:
-                    logger.error(f"补全详情异常 | item_id={item_id}: {e}")
-                await asyncio.sleep(0.5)
+        detail 端点（mtop.taobao.idle.pc.detail）风控敏感，尤其在机房 IP 上并发/高频
+        请求极易触发 RGV587。故一件一件拿、请求前先等待（含抖动，更像真人节奏）；
+        一旦某次触发风控进入冷却，立即停止本轮剩余请求——继续打也只会拿到冷却错误、
+        徒增日志噪声，等下次同步冷却结束后自然重试。"""
+        for idx, item_id in enumerate(item_ids):
+            # 请求前节流：首条也稍等，避免紧跟在列表同步之后立刻连发
+            await asyncio.sleep(random.uniform(1.5, 2.5))
+            try:
+                api_result = await self.apis.get_item_info(item_id)
+                if "data" in api_result and "itemDO" in api_result["data"]:
+                    await self._save_item_cache(item_id, api_result["data"]["itemDO"])
+                    logger.info(f"✅ 详情已补全 | item_id={item_id}")
+                else:
+                    logger.warning(f"❌ 详情获取失败 | item_id={item_id}, keys={list(api_result.keys()) if isinstance(api_result, dict) else type(api_result).__name__}")
+            except Exception as e:
+                logger.error(f"补全详情异常 | item_id={item_id}: {e}")
 
-        await asyncio.gather(*[fetch_one(item_id) for item_id in item_ids], return_exceptions=True)
+            # 触发风控则提前收尾，剩余商品留待下次同步
+            remaining = self.apis._in_cooldown()
+            if remaining > 0:
+                skipped = len(item_ids) - idx - 1
+                if skipped > 0:
+                    logger.warning(f"风控冷却中（剩余 {remaining}s），跳过剩余 {skipped} 件商品详情，下次同步重试")
+                break
 
     async def _increment_bargain(self, chat_id: str):
         async with AsyncSessionLocal() as db:
