@@ -6,6 +6,9 @@ systemctl enable docker && systemctl start docker
 
 # 2. 拉取代码
 git clone https://github.com/fangyirui/XIanyuAgentNew.git
+或
+git clone https://ghfast.top/https://github.com/fangyirui/XIanyuAgentNew.git
+
 cd XIanyuAgentNew
 
 # 3. 配置环境变量
