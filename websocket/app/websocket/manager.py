@@ -662,7 +662,7 @@ class XianyuLive:
                 await self._save_item_cache(item_id, item_info)
                 logger.info(f"商品详情已缓存 | item_id={item_id}, title={item_info.get('title', '')}")
             else:
-                logger.warning(f"获取商品详情失败 | item_id={item_id}, response_keys={list(api_result.keys())}")
+                logger.warning(f"获取商品详情失败 | item_id={item_id}, error={api_result.get('error')}")
                 return "retry"
 
         conv = await self._get_or_create_conversation(chat_id, send_user_id, item_id, sender_nickname)

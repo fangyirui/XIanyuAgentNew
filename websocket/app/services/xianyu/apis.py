@@ -161,12 +161,14 @@ class XianyuApis:
             return {"error": f"风控冷却中，剩余 {remaining}s"}
 
         data_val = f'{{"itemId":"{item_id}"}}'
+        last_ret = None
         for _ in range(3):
             res = await self._signed_post("mtop.taobao.idle.pc.detail", data_val)
             if res is None:
                 await asyncio.sleep(NONE_RETRY_BACKOFF)
                 continue
             ret_value = res.get("ret", [])
+            last_ret = ret_value
             if any("SUCCESS" in r for r in ret_value):
                 return res
             error_msg = str(ret_value)
@@ -174,7 +176,7 @@ class XianyuApis:
                 self._trip_risk_control(ret_value)
                 return {"error": f"风控: {ret_value}"}
             # token 过期：本次已接住 Set-Cookie 新 token，下一轮循环自然走第二步握手
-        return {"error": "获取商品信息失败"}
+        return {"error": f"获取商品信息失败: {last_ret}"}
 
     async def get_item_list_info(self, user_id: str, page_number: int = 1, page_size: int = 20) -> dict:
         """获取卖家自己发布的商品列表（mtop.idle.web.xyh.item.list）。"""

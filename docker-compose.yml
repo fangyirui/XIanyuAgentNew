@@ -11,7 +11,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-xianyu_pass_123}
       TZ: Asia/Shanghai
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -88,7 +88,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
     ports:
-      - "80:80"
+      - "8080:80"
     depends_on:
       - backend-web
     networks:
