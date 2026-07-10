@@ -1,7 +1,7 @@
 from typing import Optional
 from pydantic_settings import BaseSettings
 
-DB_OVERRIDABLE_KEYS = ("API_KEY", "MODEL_BASE_URL", "MODEL_NAME", "SKIP_KEYWORDS")
+DB_OVERRIDABLE_KEYS = ("API_KEY", "MODEL_BASE_URL", "MODEL_NAME", "SKIP_KEYWORDS", "GLOBAL_MANUAL_MODE")
 
 
 class Settings(BaseSettings):
@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     TOGGLE_KEYWORDS: str = "。"
     SIMULATE_HUMAN_TYPING: bool = False
     SKIP_KEYWORDS: str = "快给ta一个评价吧,有蚂蚁森林能量可领"
+    # 全局人工回复开关（字符串存储，便于走 system_config 热改）：开启后所有会话都不触发 AI 自动回复，
+    # 买家消息照常入库供人工在后台查看/回复，效果等价于对全部会话开启"人工接管"。
+    GLOBAL_MANUAL_MODE: str = "false"
 
     WEBSOCKET_SERVICE_URL: str = "http://localhost:8090"
     BACKEND_WEB_URL: str = "http://localhost:8089"
@@ -73,6 +76,12 @@ class Settings(BaseSettings):
     @property
     def REDIS_URL(self) -> str:
         return f"redis://:{self.REDIS_PASSWORD}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+
+    @property
+    def global_manual_mode_on(self) -> bool:
+        """GLOBAL_MANUAL_MODE 以字符串存放（来自 .env 或 system_config），这里统一解析为布尔。
+        仅 1/true/yes/on（忽略大小写与首尾空白）视为开启，其余（含空串、'false'）为关闭。"""
+        return str(self.GLOBAL_MANUAL_MODE).strip().lower() in ("1", "true", "yes", "on")
 
     async def load_from_db(self):
         try:

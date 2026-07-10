@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Cookie, Bot, FileText, Filter, QrCode } from 'lucide-react'
+import { Cookie, Bot, FileText, Filter, QrCode, UserCog } from 'lucide-react'
 import { getPrompts, updatePrompt, getEnvConfig, updateEnvConfig, testAiConnection } from '@/api/config'
 import QrLoginModal from '@/components/QrLoginModal'
 
 type Tab = 'cookie' | 'ai' | 'prompts' | 'filter'
 interface Prompt { name: string; content: string }
-interface EnvConfig { API_KEY: string; MODEL_BASE_URL: string; MODEL_NAME: string; COOKIES_STR: string; SKIP_KEYWORDS: string }
+interface EnvConfig { API_KEY: string; MODEL_BASE_URL: string; MODEL_NAME: string; COOKIES_STR: string; SKIP_KEYWORDS: string; GLOBAL_MANUAL_MODE: string }
 
 const PROMPT_LABELS: Record<string, string> = {
   classify_prompt: '意图分类',
@@ -16,7 +16,7 @@ const PROMPT_LABELS: Record<string, string> = {
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('cookie')
-  const [env, setEnv] = useState<EnvConfig>({ API_KEY: '', MODEL_BASE_URL: '', MODEL_NAME: '', COOKIES_STR: '', SKIP_KEYWORDS: '' })
+  const [env, setEnv] = useState<EnvConfig>({ API_KEY: '', MODEL_BASE_URL: '', MODEL_NAME: '', COOKIES_STR: '', SKIP_KEYWORDS: '', GLOBAL_MANUAL_MODE: 'false' })
   const [cookieInput, setCookieInput] = useState('')
   const [prompts, setPrompts] = useState<Prompt[]>([])
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null)
@@ -26,6 +26,7 @@ export default function SettingsPage() {
   const [msgType, setMsgType] = useState<'success' | 'error'>('success')
   const [showQr, setShowQr] = useState(false)
   const [aiTesting, setAiTesting] = useState(false)
+  const [savingGlobal, setSavingGlobal] = useState(false)
 
   useEffect(() => {
     getEnvConfig().then((data) => { setEnv(data); setCookieInput(data.COOKIES_STR) }).catch(() => {})
@@ -103,6 +104,22 @@ export default function SettingsPage() {
     }
   }
 
+  const handleToggleGlobalManual = async () => {
+    const next = env.GLOBAL_MANUAL_MODE === 'true' ? 'false' : 'true'
+    // 乐观更新开关，失败再回滚，避免热重载往返期间界面卡顿
+    setEnv((prev) => ({ ...prev, GLOBAL_MANUAL_MODE: next }))
+    setSavingGlobal(true)
+    try {
+      await updateEnvConfig({ GLOBAL_MANUAL_MODE: next })
+      showMsg(next === 'true' ? '已开启全局人工模式，AI 将暂停自动回复' : '已关闭全局人工模式，AI 恢复自动回复')
+    } catch (e: any) {
+      setEnv((prev) => ({ ...prev, GLOBAL_MANUAL_MODE: next === 'true' ? 'false' : 'true' }))
+      showMsg(e?.response?.data?.detail || '切换失败', 'error')
+    } finally {
+      setSavingGlobal(false)
+    }
+  }
+
   const tabs: { key: Tab; label: string; icon: typeof Cookie }[] = [
     { key: 'cookie', label: 'Cookie 设置', icon: Cookie },
     { key: 'ai', label: 'AI 配置', icon: Bot },
@@ -116,6 +133,36 @@ export default function SettingsPage() {
         <h2 className="text-2xl font-bold text-gray-50">设置</h2>
         <p className="text-sm text-dark-400 mt-1">配置闲鱼登录、AI 模型、提示词与过滤规则</p>
       </div>
+
+      {/* 全局人工回复开关：开启后所有会话暂停 AI 自动回复，买家消息仍入库供人工处理 */}
+      {(() => {
+        const on = env.GLOBAL_MANUAL_MODE === 'true'
+        return (
+          <div className={`card card-body flex items-center gap-4 ${on ? 'border-amber-500/40 bg-amber-500/5' : ''}`}>
+            <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${on ? 'bg-amber-500/15 text-amber-300' : 'bg-dark-800 text-dark-300'}`}>
+              <UserCog size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-gray-100">全局人工回复</div>
+              <p className="text-xs text-dark-400 mt-0.5">
+                {on
+                  ? '已开启：暂停 AI 自动回复，买家消息仍会记录，请在对话中手动回复；已配「默认回复」的商品仍会自动发送。'
+                  : '关闭中：AI 正常自动回复。开启后仅暂停 AI，商品的「默认回复」不受影响。'}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={on}
+              disabled={savingGlobal}
+              onClick={handleToggleGlobalManual}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-amber-500' : 'bg-dark-600'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+        )
+      })()}
 
       {message && (
         <div className={`rounded-xl px-4 py-2.5 text-sm border ${msgType === 'error' ? 'bg-red-500/10 text-red-300 border-red-500/30' : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'}`}>

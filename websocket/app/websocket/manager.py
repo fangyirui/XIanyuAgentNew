@@ -51,6 +51,9 @@ class XianyuLive:
         self.manual_mode_conversations: set = set()
         self.manual_mode_timestamps: dict = {}
         self.manual_mode_timeout = settings.MANUAL_MODE_TIMEOUT
+        # 全局人工回复开关：开启后所有会话都只记录买家消息、不触发 AI 自动回复（见 _handle_one_sync）。
+        # 由 system_config 热改，_soft_reload 会刷新此字段（不断连）。
+        self.global_manual_mode = settings.global_manual_mode_on
         self.message_expire_time = settings.MESSAGE_EXPIRE_TIME
         self.toggle_keywords = settings.TOGGLE_KEYWORDS
         self.simulate_human_typing = settings.SIMULATE_HUMAN_TYPING
@@ -421,12 +424,16 @@ class XianyuLive:
             mn, mx = min(valid_prices), max(valid_prices)
             price_display = f"¥{mn}" if mn == mx else f"¥{mn} - ¥{mx}"
         else:
-            price_display = f"¥{round(float(item_info.get('soldPrice', 0)), 2)}"
+            # 手工补全的商品可能没填价格（soldPrice=0）：此时不输出价格行，
+            # 避免给 AI 一个误导性的"¥0"。
+            sold_price = round(float(item_info.get("soldPrice", 0)), 2)
+            price_display = f"¥{sold_price}" if sold_price > 0 else ""
         lines = [
             f"商品标题：{item_info.get('title', '')}",
             f"商品描述：{item_info.get('desc', '')}",
-            f"商品价格：{price_display}",
         ]
+        if price_display:
+            lines.append(f"商品价格：{price_display}")
         if clean_skus:
             sku_text = "；".join(
                 f"{s['spec']}（{s['price']}元/库存{s['stock']}）" for s in clean_skus
@@ -657,6 +664,17 @@ class XianyuLive:
                     return "retry"
                 await self._mark_done(ids, ttl)
                 return "done"
+
+        # 全局人工回复模式：只停 AI、不停默认回复。命中默认回复的分支已在上方发送并 return；
+        # 走到这里说明该商品没配默认回复（或本条非会话首条），此时仅把买家消息落库供人工查看，
+        # 不取详情、不生成 AI。幂等复用 mq:umsg:{batch_key}，重投不会重复落库；返回 done 让整批 XACK。
+        if self.global_manual_mode:
+            conv = await self._get_or_create_conversation(chat_id, send_user_id, item_id, sender_nickname)
+            if not await self.redis.get(f"mq:umsg:{batch_key}"):
+                await self._persist_user_msgs(batch, conv.id, batch_key, ttl)
+            await self._mark_done(ids, ttl)
+            logger.info(f"全局人工模式，仅记录买家消息不生成 AI | chat_id={chat_id}")
+            return "done"
 
         item_info = await self._get_item_cache(item_id)
         if not item_info:

@@ -66,3 +66,15 @@ export async function sendMessage(chatId: string, text: string) {
   const { data } = await request.post(`/ws/send-message/${chatId}`, { text })
   return data as { status: string; detail?: string; chat_id?: string }
 }
+
+// 切换某会话的人工接管（等价于卖家在闲鱼 App 里对该会话发一个句号）。返回切换后的模式。
+export async function toggleManualMode(chatId: string) {
+  const { data } = await request.post(`/ws/manual-mode/${chatId}`)
+  return data as { chat_id?: string; mode?: 'manual' | 'auto'; error?: string }
+}
+
+// 当前处于人工接管的会话 chat_id 列表（状态存在 websocket 进程内存，经 /ws/status 暴露）。
+export async function getManualChats(): Promise<string[]> {
+  const { data } = await request.get('/ws/status')
+  return (data?.manual_mode_conversations as string[]) ?? []
+}

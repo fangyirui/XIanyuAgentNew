@@ -29,3 +29,19 @@ export async function updateItemDefaultReply(itemId: string, patch: ItemDefaultR
     default_reply_enabled: boolean
   }
 }
+
+export interface ItemDetailPatch {
+  title?: string
+  price?: number
+  description?: string
+}
+
+export async function updateItemDetail(itemId: string, patch: ItemDetailPatch) {
+  const { data } = await request.patch(`/items/${itemId}`, patch)
+  return data as {
+    ok: boolean
+    title: string
+    price: number
+    description: string
+  }
+}

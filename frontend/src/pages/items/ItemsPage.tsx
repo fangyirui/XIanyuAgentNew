@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Package, RefreshCw, Search, Pencil, ChevronDown, ChevronRight } from 'lucide-react'
-import { getItems, syncItems, updateItemPrompt, updateItemDefaultReply } from '@/api/items'
+import { getItems, syncItems, updateItemPrompt, updateItemDefaultReply, updateItemDetail } from '@/api/items'
 
 interface Item {
   id: number
@@ -35,6 +35,12 @@ export default function ItemsPage() {
   const [replyEnabledDraft, setReplyEnabledDraft] = useState(false)
   const [savingReplyId, setSavingReplyId] = useState<number | null>(null)
   const [replyErr, setReplyErr] = useState('')
+  const [editingDetailId, setEditingDetailId] = useState<number | null>(null)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [priceDraft, setPriceDraft] = useState('')
+  const [descDraft, setDescDraft] = useState('')
+  const [savingDetailId, setSavingDetailId] = useState<number | null>(null)
+  const [detailErr, setDetailErr] = useState('')
   const pageSize = 20
 
   const toggleExpand = (id: number) => {
@@ -147,6 +153,56 @@ export default function ItemsPage() {
     }
   }
 
+  const startEditDetail = (item: Item) => {
+    setEditingDetailId(item.id)
+    setTitleDraft(item.title || '')
+    setPriceDraft(item.price > 0 ? String(item.price) : '')
+    setDescDraft(item.description || '')
+    setDetailErr('')
+  }
+
+  const cancelEditDetail = () => {
+    setEditingDetailId(null)
+    setTitleDraft('')
+    setPriceDraft('')
+    setDescDraft('')
+    setDetailErr('')
+  }
+
+  const saveDetail = async (item: Item) => {
+    const trimmedTitle = titleDraft.trim()
+    if (!trimmedTitle) {
+      setDetailErr('标题不能为空')
+      return
+    }
+    let price = 0
+    if (priceDraft.trim()) {
+      price = Number(priceDraft)
+      if (Number.isNaN(price) || price < 0) {
+        setDetailErr('价格必须是不小于 0 的数字')
+        return
+      }
+    }
+    setSavingDetailId(item.id)
+    setDetailErr('')
+    try {
+      const res = await updateItemDetail(item.item_id, {
+        title: trimmedTitle,
+        price,
+        description: descDraft,
+      })
+      setItems((prev) => prev.map((it) => it.id === item.id
+        ? { ...it, title: res.title ?? trimmedTitle, price: res.price ?? price, description: res.description ?? descDraft }
+        : it,
+      ))
+      cancelEditDetail()
+    } catch (e: any) {
+      setDetailErr(e?.response?.data?.detail || '保存失败')
+    } finally {
+      setSavingDetailId(null)
+    }
+  }
+
   const totalPages = Math.ceil(total / pageSize)
 
   return (
@@ -159,7 +215,7 @@ export default function ItemsPage() {
             商品配置
           </h2>
           <p className="text-sm text-dark-400 mt-1">
-            已缓存 <span className="text-gray-200 font-medium">{total}</span> 件商品。可单独为某商品配置 AI 提示词作为系统提示词的补充。
+            已缓存 <span className="text-gray-200 font-medium">{total}</span> 件商品。可点击标题手工编辑商品详情（标题/价格/描述），或单独配置 AI 提示词、默认回复。
           </p>
         </div>
         <button onClick={handleSync} disabled={syncing} className="btn btn-primary">
@@ -225,18 +281,74 @@ export default function ItemsPage() {
                   const editingReply = editingReplyId === item.id
                   const savingReply = savingReplyId === item.id
                   const hasReply = !!(item.default_reply && item.default_reply.trim())
+                  const editingDetail = editingDetailId === item.id
+                  const savingDetail = savingDetailId === item.id
                   return (
                     <tr key={item.id}>
                       <td className="font-mono text-xs text-dark-400 whitespace-nowrap">{item.item_id}</td>
                       <td className="font-mono text-xs text-dark-400 whitespace-nowrap">{item.seller_id || '-'}</td>
-                      <td className="max-w-xs text-gray-100">{item.title || '-'}</td>
-                      <td className="text-right text-primary-400 whitespace-nowrap font-medium">{item.price > 0 ? `¥${item.price}` : '-'}</td>
+                      <td className="max-w-xs text-gray-100">
+                        {editingDetail ? (
+                          <input
+                            value={titleDraft}
+                            onChange={(e) => setTitleDraft(e.target.value)}
+                            maxLength={256}
+                            className="input !p-2 text-xs"
+                            placeholder="商品标题"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => startEditDetail(item)}
+                            className="inline-flex items-start gap-1.5 text-left hover:text-primary-300 transition-colors"
+                            title="点击编辑详情（标题/价格/描述）"
+                          >
+                            <Pencil size={12} className="text-dark-500 mt-0.5 flex-shrink-0" />
+                            <span className="break-words">{item.title || <span className="text-dark-500">未设置（点击编辑）</span>}</span>
+                          </button>
+                        )}
+                      </td>
+                      <td className="text-right text-primary-400 whitespace-nowrap font-medium">
+                        {editingDetail ? (
+                          <input
+                            value={priceDraft}
+                            onChange={(e) => setPriceDraft(e.target.value)}
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="input !p-2 text-xs !text-right w-24"
+                            placeholder="价格"
+                          />
+                        ) : (
+                          item.price > 0 ? `¥${item.price}` : '-'
+                        )}
+                      </td>
                       <td
-                        onClick={() => hasDesc && toggleExpand(item.id)}
-                        className={`max-w-md text-soft text-xs ${hasDesc ? 'cursor-pointer select-none' : ''} ${expanded ? 'whitespace-pre-line break-words' : ''}`}
-                        title={hasDesc ? (expanded ? '点击收起' : '点击展开') : ''}
+                        onClick={() => !editingDetail && hasDesc && toggleExpand(item.id)}
+                        className={`max-w-md text-soft text-xs ${!editingDetail && hasDesc ? 'cursor-pointer select-none' : ''} ${expanded ? 'whitespace-pre-line break-words' : ''}`}
+                        title={!editingDetail && hasDesc ? (expanded ? '点击收起' : '点击展开') : ''}
                       >
-                        {hasDesc ? (
+                        {editingDetail ? (
+                          <div className="space-y-2">
+                            <textarea
+                              value={descDraft}
+                              onChange={(e) => setDescDraft(e.target.value)}
+                              maxLength={4000}
+                              rows={4}
+                              className="input !p-2.5 text-xs"
+                              placeholder="商品描述（会随标题、价格一起作为商品详情提供给 AI）"
+                            />
+                            <div className="flex gap-2 items-center">
+                              <button onClick={() => saveDetail(item)} disabled={savingDetail} className="btn btn-primary btn-sm">
+                                {savingDetail ? '保存中…' : '保存详情'}
+                              </button>
+                              <button onClick={cancelEditDetail} disabled={savingDetail} className="btn btn-secondary btn-sm">
+                                取消
+                              </button>
+                              <span className="text-dark-500 ml-auto">{descDraft.length}/4000</span>
+                            </div>
+                            {detailErr && <div className="text-red-400 text-xs">{detailErr}</div>}
+                          </div>
+                        ) : hasDesc ? (
                           <span className="inline-flex items-start gap-1">
                             <span className="text-dark-500 mt-0.5 flex-shrink-0">
                               {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MessageSquare, Trash2, Send } from 'lucide-react'
-import { batchDeleteConversations, deleteConversation, getConversations, getMessages, sendMessage } from '@/api/logs'
+import { MessageSquare, Trash2, Send, Hand, Bot } from 'lucide-react'
+import { batchDeleteConversations, deleteConversation, getConversations, getManualChats, getMessages, sendMessage, toggleManualMode } from '@/api/logs'
 
 const PAGE_SIZE = 20
 
@@ -60,6 +60,8 @@ export default function LogsPage() {
   const [deleting, setDeleting] = useState(false)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [manualChats, setManualChats] = useState<Set<string>>(new Set())
+  const [togglingManual, setTogglingManual] = useState(false)
   const [msgHasMore, setMsgHasMore] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
@@ -186,9 +188,17 @@ export default function LogsPage() {
     }
   }
 
+  // 人工接管状态存在 websocket 进程内存，从 /ws/status 拉取当前接管中的会话集合
+  const refreshManualChats = useCallback(async () => {
+    try {
+      setManualChats(new Set(await getManualChats()))
+    } catch { /* 服务未运行等，忽略 */ }
+  }, [])
+
   // 初始加载
   useEffect(() => {
     loadMore()
+    refreshManualChats()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -345,9 +355,31 @@ export default function LogsPage() {
     setSelectedChat(conv.chat_id)
     setSelectedConv(conv)
     setDraft('')
+    refreshManualChats()
     const data = await getMessages(conv.chat_id)
     setMessages(data.items)
     setMsgHasMore(data.has_more)
+  }
+
+  // 切换人工接管：等价于卖家在闲鱼 App 对该会话发一个句号。接管中 → AI 不再自动回复，仅记录。
+  const handleToggleManual = async () => {
+    if (!selectedChat || togglingManual) return
+    setTogglingManual(true)
+    try {
+      const res = await toggleManualMode(selectedChat)
+      if (res.error) {
+        window.alert(res.error === 'not_running' ? 'WebSocket 服务未运行' : `切换失败：${res.error}`)
+        return
+      }
+      setManualChats((prev) => {
+        const next = new Set(prev)
+        if (res.mode === 'manual') next.add(selectedChat)
+        else next.delete(selectedChat)
+        return next
+      })
+    } finally {
+      setTogglingManual(false)
+    }
   }
 
   const ERR_MESSAGES: Record<string, string> = {
@@ -490,14 +522,34 @@ export default function LogsPage() {
           {/* Message panel */}
           <div className="flex-1 flex flex-col overflow-hidden">
             {selectedConv && (
-              <div className="px-5 py-3 border-b border-dark-700/60 shrink-0">
-                <p className="text-sm font-medium text-gray-100">
-                  {selectedConv.item_title || '未知商品'}
-                  {selectedConv.item_price ? <span className="text-primary-400 ml-2">¥{selectedConv.item_price}</span> : null}
-                </p>
-                <p className="text-xs text-dark-400 mt-0.5">
-                  买家 {selectedConv.user_nickname || selectedConv.user_id} · 商品 {selectedConv.item_id}
-                </p>
+              <div className="px-5 py-3 border-b border-dark-700/60 shrink-0 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-100">
+                    {selectedConv.item_title || '未知商品'}
+                    {selectedConv.item_price ? <span className="text-primary-400 ml-2">¥{selectedConv.item_price}</span> : null}
+                    {manualChats.has(selectedConv.chat_id) && (
+                      <span className="badge badge-warning !text-[10px] ml-2 align-middle">人工接管中</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-dark-400 mt-0.5 truncate">
+                    买家 {selectedConv.user_nickname || selectedConv.user_id} · 商品 {selectedConv.item_id}
+                  </p>
+                </div>
+                {(() => {
+                  const on = manualChats.has(selectedConv.chat_id)
+                  return (
+                    <button
+                      type="button"
+                      onClick={handleToggleManual}
+                      disabled={togglingManual}
+                      title={on ? '恢复 AI 自动回复' : '接管本会话：AI 暂停自动回复，仅记录买家消息'}
+                      className={`btn-secondary !px-3 !py-1.5 flex items-center gap-1.5 shrink-0 text-xs disabled:opacity-50 ${on ? '!text-amber-300 !border-amber-500/40' : ''}`}
+                    >
+                      {on ? <Bot size={14} /> : <Hand size={14} />}
+                      {togglingManual ? '切换中…' : on ? '恢复自动' : '人工接管'}
+                    </button>
+                  )
+                })()}
               </div>
             )}
             <div ref={msgListRef} onScroll={handleMsgScroll} className="flex-1 overflow-auto p-5 space-y-3">
@@ -556,7 +608,7 @@ export default function LogsPage() {
                       }
                     }}
                     rows={1}
-                    placeholder="输入消息，Enter 发送 / Shift+Enter 换行（发送后将切换为人工接管）"
+                    placeholder="输入消息，Enter 发送 / Shift+Enter 换行"
                     className="flex-1 resize-none max-h-32 px-3 py-2 rounded-xl bg-dark-800 border border-dark-700/60 text-sm text-gray-100 placeholder:text-dark-500 focus:outline-none focus:border-primary-500/50"
                   />
                   <button

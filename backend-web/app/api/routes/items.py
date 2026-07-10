@@ -76,10 +76,14 @@ async def sync_items():
 
 
 class ItemConfigUpdate(BaseModel):
-    # 三字段全部 Optional：通过 model_dump(exclude_unset=True) 区分"未提供"与"清空"
+    # 全部 Optional：通过 model_dump(exclude_unset=True) 区分"未提供"与"清空"
     custom_prompt: Optional[str] = None
     default_reply: Optional[str] = None
     default_reply_enabled: Optional[bool] = None
+    # 详情编辑：允许在后台手工补全商品详情，绕过闲鱼详情接口风控
+    title: Optional[str] = None
+    price: Optional[float] = None
+    description: Optional[str] = None
 
 
 @router.patch("/{item_id}")
@@ -109,10 +113,40 @@ async def update_item_config(
         item.default_reply = data["default_reply"] or None
     if "default_reply_enabled" in data:
         item.default_reply_enabled = bool(data["default_reply_enabled"])
+
+    # 详情手工编辑：除写列外，还要把值合成进 raw_json（title/desc/soldPrice），
+    # websocket 端 _get_item_cache 仅在 raw_json 含 soldPrice 时才判定详情完整并喂给 AI，
+    # 否则会持续回拉详情（风控下永远拉不到 → 永不回复）。写入 soldPrice 即可让其认作完整详情，
+    # 同时 _batch_save_items_from_list / _find_items_missing_detail 都以"缺 soldPrice"为条件，
+    # 手填后不会被列表同步覆盖、也不会再触发详情重拉。
+    detail_keys = {"title", "price", "description"}
+    if detail_keys & data.keys():
+        new_raw = dict(item.raw_json or {})
+        if "title" in data:
+            title = (data["title"] or "").strip()
+            item.title = title or None
+            new_raw["title"] = title
+        if "description" in data:
+            desc = (data["description"] or "").strip()
+            item.description = desc or None
+            new_raw["desc"] = desc
+        if "price" in data:
+            price = data["price"]
+            item.price = price if price is not None else None
+            new_raw["soldPrice"] = float(price) if price is not None else 0
+        else:
+            # 未同时传价格但要标记详情完整：确保 raw_json 至少有 soldPrice 键
+            new_raw.setdefault("soldPrice", float(item.price) if item.price is not None else 0)
+        item.raw_json = new_raw  # 重新赋新对象以触发 SQLAlchemy JSON 变更检测
+        item.fetched_at = func.now()
+
     await db.commit()
     return {
         "ok": True,
         "custom_prompt": item.custom_prompt or "",
         "default_reply": item.default_reply or "",
         "default_reply_enabled": bool(item.default_reply_enabled),
+        "title": item.title or "",
+        "price": float(item.price) if item.price is not None else 0,
+        "description": item.description or "",
     }

@@ -74,6 +74,7 @@ async def _soft_reload():
     _live_instance.manual_mode_timeout = settings.MANUAL_MODE_TIMEOUT
     _live_instance.message_expire_time = settings.MESSAGE_EXPIRE_TIME
     _live_instance.simulate_human_typing = settings.SIMULATE_HUMAN_TYPING
+    _live_instance.global_manual_mode = settings.global_manual_mode_on
 
     from .services.agent import XianyuReplyBot
     _live_instance.bot = XianyuReplyBot()
